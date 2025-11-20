@@ -87,73 +87,59 @@ public class Worker : BackgroundService
         {
             Console.WriteLine("Message received!");
             _logger.LogInformation("Message received in consumer");
-        
-            using var scope = _scopeFactory.CreateScope();
-            var handlerFactory = scope.ServiceProvider.GetRequiredService<IProductHandlerFactory>();
-
-            var body = ea.Body.ToArray();
-            var json = Encoding.UTF8.GetString(body);
             
-            Console.WriteLine("\nCReceived message: {json}", json);
-            _logger.LogInformation("Received message: {json}", json);
-
             try
             {
-                /*
-                 * get the components from the order
-                 */
+                Console.WriteLine("Creating service scope...");
+                using var scope = _scopeFactory.CreateScope();
+                
+                Console.WriteLine("Getting handler factory...");
+                var handlerFactory = scope.ServiceProvider.GetRequiredService<IProductHandlerFactory>();
+                Console.WriteLine("Handler factory retrieved successfully");
+
+                var body = ea.Body.ToArray();
+                var json = Encoding.UTF8.GetString(body);
+                
+                Console.WriteLine($"Received message: {json}");
+                _logger.LogInformation("Received message: {json}", json);
+
+                Console.WriteLine("Deserializing order...");
                 var orderCreated = JsonSerializer.Deserialize<OrderCreated>(json);
+                Console.WriteLine($"Order deserialized: ID={orderCreated?.order?.id}");
+                
                 var productType = ProductTypeExtensions.ParseProductType(orderCreated.order.product_type);
+                Console.WriteLine($"Product type parsed: {productType}");
 
                 _logger.LogInformation("Processing order {OrderId} for product type: {ProductType}", orderCreated.order.id, productType);
 
                 bool success = false;
                 
-                /*
-                 * are we working with a product type we've configured
-                 */
                 if(productType != ProductType.Unknown)
                 {
-                    try
-                    {
-                        /*
-                         * get the handler for this product type
-                         */
-                        var handler = handlerFactory.GetHandler(productType);
-                        
-                        /*
-                         * trigger the handler
-                         */
-                        success = await handler.ProcessOrderAsync(orderCreated);
-                    }
-                    catch (NotSupportedException ex)
-                    {
-                        /*
-                         * we don't have a handler setup yet
-                         * for example maybe the product type is 'potato'
-                         */
-                        _logger.LogWarning(ex, "Unsupported product type: {ProductType}", productType);
-                        success = false;
-                    }
-                }else
+                    Console.WriteLine("Getting handler for product type...");
+                    var handler = handlerFactory.GetHandler(productType);
+                    Console.WriteLine("Handler retrieved, processing order...");
+                    
+                    success = await handler.ProcessOrderAsync(orderCreated);
+                    Console.WriteLine($"Order processing completed: success={success}");
+                }
+                else
                 {
-                    /*
-                     * we're not setup for this product type yet
-                     * @see ProductTypes.cs
-                     */
                     _logger.LogWarning("Unknown product type: {ProductType}", orderCreated.order.product_type);
                 }
 
-                /*
-                 * send result back to RabbitMQ
-                 */
+                Console.WriteLine("Publishing result event...");
                 await PublishResultEvent(orderCreated, success);
+                Console.WriteLine("Result event published");
                 
                 _channel.BasicAck(ea.DeliveryTag, multiple: false);
                 _logger.LogInformation("Successfully processed order {OrderId}", orderCreated.order.id);
+                Console.WriteLine("Message processing completed successfully");
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"ERROR in message processing: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 _logger.LogError(ex, "Error processing message");
                 _channel.BasicNack(ea.DeliveryTag, false, false);
             }
