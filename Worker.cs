@@ -172,6 +172,7 @@ public class Worker : BackgroundService
             order = new
             {
                 id = originalOrder.order.id,
+                task_id = originalOrder.task_id,
                 product_type = originalOrder.order.product_type,
                 status = success ? "fulfilled" : "failed"
             }
